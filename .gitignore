@@ -1,7 +1,17 @@
-# CubeMX 生成物
-stm32/*/build/
-stm32/*/*.bak
-stm32/*/Core/Src/*.bak
+# 编译产物
+*.o
+*.a
+*.lib
+*.elf
+*.hex
+*.bin
+*.map
+*.lst
+*.d
+build/
+
+# 备份
+*.bak
 
 # Python
 __pycache__/
