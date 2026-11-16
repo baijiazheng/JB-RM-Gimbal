@@ -24,7 +24,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <string.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,17 +46,28 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+/* ---- 串口接收缓冲 ---- */
+uint8_t  rx_byte;              /* UART 中断接收的单字节 */
+uint8_t  rx_buf[32];           /* 帧缓冲 */
+uint8_t  rx_idx = 0;           /* 缓冲写指针 */
 
+/* ---- 解析结果（volatile：中断里写，主循环里读）---- */
+volatile float   g_yaw    = 0.0f;    /* 目标水平角（度）*/
+volatile float   g_pitch  = 0.0f;    /* 目标垂直角（度）*/
+volatile float   g_dist   = 0.0f;    /* 距离（米）*/
+volatile uint8_t g_fire   = 0;
+volatile uint8_t g_status = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-
+static uint32_t servo_pulse(float angle_deg);   /* while 里用到，定义在文件末尾 */
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+/* USER CODE END 0 */
 
 /* USER CODE END 0 */
 
@@ -91,7 +103,14 @@ int main(void)
   MX_TIM2_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  /* 启动 PWM（50Hz，中位 1.5ms）*/
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 
+  /* 启动 UART 中断接收（单字节模式）*/
+  HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
+/* USER CODE END 2 */
+HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -101,6 +120,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, servo_pulse(90.0f + g_yaw));
+    HAL_Delay(5);
   }
   /* USER CODE END 3 */
 }
@@ -145,7 +166,31 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+static uint32_t servo_pulse(float a) {
+    if (a < 0) a = 0;
+    if (a > 180) a = 180;
+    return (uint32_t)(500.0f + a * 11.111f);
+}
 
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+    if (huart->Instance != USART1) return;
+    rx_buf[rx_idx++] = rx_byte;
+    if (rx_idx >= 2 && rx_buf[rx_idx-2]==0xAA && rx_buf[rx_idx-1]==0x55) {
+        rx_idx = 2;
+    } else if (rx_idx >= 18) {
+        if (rx_buf[17] == 0x0D) {
+            uint8_t sum = 0;
+            for (int i = 2; i < 16; i++) sum += rx_buf[i];
+            if (sum == rx_buf[16]) {
+                float yaw;
+                memcpy(&yaw, &rx_buf[2], 4);
+                g_yaw = yaw;
+            }
+        }
+        rx_idx = 0;
+    }
+    HAL_UART_Receive_IT(huart, &rx_byte, 1);
+}
 /* USER CODE END 4 */
 
 /**
