@@ -35,8 +35,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define KP_YAW       8.0f
-#define KP_PITCH     8.0f
+#define KP_YAW       -6.0f
+#define KD_YAW        -4.0f
+#define KP_PITCH     -6.0f
+#define KD_PITCH      -4.0f
 #define OFFSET_YAW   0       /* 中位校准偏移 */
 #define OFFSET_PITCH 0
 /* USER CODE END PD */
@@ -67,7 +69,18 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#include <stdio.h>
+int __io_putchar(int ch)
+{
+    HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
+    return ch;
+}
 
+int _write(int fd, char *ptr, int len)
+{
+    HAL_UART_Transmit(&huart1, (uint8_t *)ptr, len, HAL_MAX_DELAY);
+    return len;
+}
 /* USER CODE END 0 */
 
 /**
@@ -114,15 +127,33 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    static float last_yaw = 0.0f;
+    static float last_pitch = 0.0f;
     static uint32_t last_print = 0;
+
+    float err_yaw = g_yaw;
+    float d_err_yaw = err_yaw - last_yaw;
+    last_yaw = err_yaw;
+
+    float err_pitch = g_pitch;
+    float d_err_pitch = err_pitch - last_pitch;
+    last_pitch = err_pitch;
     if (HAL_GetTick() - last_print > 500) {      // 每 500ms 打印一次
       last_print = HAL_GetTick();
-      printf("yaw=%.2f pitch=%.2f dist=%.3f fire=%d\r\n",
-              g_yaw, g_pitch, g_dist, g_fire);
+      printf("yaw=%.2f pitch=%.2f dist=%.3f fire=%d\r\n",g_yaw, g_pitch, g_dist, g_fire);
       HAL_GPIO_TogglePin(GPIOC,GPIO_PIN_13);
     }
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1500);
-    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1500);
+    // ② Yaw 控制（270° 舵机，PA0）
+    int32_t p_yaw = 1500 + (int32_t)(KP_YAW * err_yaw + KD_YAW * d_err_yaw);
+    if (p_yaw < 500)  p_yaw = 500;
+    if (p_yaw > 2500) p_yaw = 2500;
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, p_yaw);
+
+    // ③ Pitch 控制（180° 舵机，PA1）
+    int32_t p_pitch = 1500 + (int32_t)(KP_PITCH * err_pitch + KD_PITCH * d_err_pitch);
+    if (p_pitch < 500)  p_pitch = 500;
+    if (p_pitch > 2500) p_pitch = 2500;
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, p_pitch);
   }
   /* USER CODE END 3 */
 }
@@ -170,7 +201,7 @@ void SystemClock_Config(void)
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
   if (huart->Instance != USART1) return;
-
+  // HAL_UART_Transmit(&huart1,&rx_byte,1,10);
   rx_buf[rx_idx++] = rx_byte;
 
   if (rx_idx >= 2 && rx_buf[rx_idx-2] == 0xAA && rx_buf[rx_idx-1] == 0x55) {
@@ -193,8 +224,17 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     }
     rx_idx = 0;
   }
-
   HAL_UART_Receive_IT(huart, &rx_byte, 1);     // ★ 必须重开
+}
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance != USART1) return;
+
+    // ★ 清掉溢出标志
+    __HAL_UART_CLEAR_OREFLAG(huart);
+
+    // ★ 重新开启接收（否则永久停收）
+    HAL_UART_Receive_IT(huart, &rx_byte, 1);
 }
 /* USER CODE END 4 */
 

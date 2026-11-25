@@ -1,0 +1,270 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file           : main.c
+  * @brief          : Main program body
+  ******************************************************************************
+  * @attention
+  *
+  * Copyright (c) 2026 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+/* Includes ------------------------------------------------------------------*/
+#include "main.h"
+#include "tim.h"
+#include "usart.h"
+#include "gpio.h"
+#include <string.h>
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+
+/* USER CODE END Includes */
+
+/* Private typedef -----------------------------------------------------------*/
+/* USER CODE BEGIN PTD */
+
+/* USER CODE END PTD */
+
+/* Private define ------------------------------------------------------------*/
+/* USER CODE BEGIN PD */
+#define KP_YAW       3.0f
+#define KD_YAW   4.0f
+#define KP_PITCH     2.0f
+#define KD_PITCH   4.0f
+#define OFFSET_YAW   0       /* 中位校准偏移 */
+#define OFFSET_PITCH 0
+/* USER CODE END PD */
+
+/* Private macro -------------------------------------------------------------*/
+/* USER CODE BEGIN PM */
+
+/* USER CODE END PM */
+
+/* Private variables ---------------------------------------------------------*/
+
+/* USER CODE BEGIN PV */
+uint8_t  rx_byte;
+uint8_t  rx_buf[32];
+uint8_t  rx_idx = 0;
+volatile float g_yaw    = 0.0f;
+volatile float g_pitch  = 0.0f;
+volatile float g_dist   = 0.0f;
+volatile uint8_t g_fire = 0;
+
+/* USER CODE END PV */
+
+/* Private function prototypes -----------------------------------------------*/
+void SystemClock_Config(void);
+/* USER CODE BEGIN PFP */
+
+/* USER CODE END PFP */
+
+/* Private user code ---------------------------------------------------------*/
+/* USER CODE BEGIN 0 */
+#include <stdio.h>
+int __io_putchar(int ch)
+{
+    HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
+    return ch;
+}
+
+int _write(int fd, char *ptr, int len)
+{
+    HAL_UART_Transmit(&huart1, (uint8_t *)ptr, len, HAL_MAX_DELAY);
+    return len;
+}
+/* USER CODE END 0 */
+
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
+int main(void)
+{
+
+  /* USER CODE BEGIN 1 */
+
+  /* USER CODE END 1 */
+
+  /* MCU Configuration--------------------------------------------------------*/
+
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
+
+  /* USER CODE BEGIN Init */
+
+  /* USER CODE END Init */
+
+  /* Configure the system clock */
+  SystemClock_Config();
+
+  /* USER CODE BEGIN SysInit */
+
+  /* USER CODE END SysInit */
+
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_USART1_UART_Init();
+  MX_TIM2_Init();
+  /* USER CODE BEGIN 2 */
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);   /* yaw */
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);   /* pitch */
+  HAL_UART_Receive_IT(&huart1,&rx_byte,1);    /* UART1 */
+  /* USER CODE END 2 */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
+  while (1)
+  {
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+    static float last_yaw = 0.0f;
+    static float last_pitch = 0.0f;
+    static uint32_t last_print = 0;
+
+    float err_yaw = g_yaw;
+    float d_err_yaw = err_yaw - last_yaw;
+    last_yaw = err_yaw;
+
+    float err_pitch = g_pitch;
+    float d_err_pitch = err_pitch - last_pitch;
+    last_pitch = err_pitch;
+    if (HAL_GetTick() - last_print > 500) {      // 每 500ms 打印一次
+      last_print = HAL_GetTick();
+      printf("yaw=%.2f pitch=%.2f dist=%.3f fire=%d\r\n",g_yaw, g_pitch, g_dist, g_fire);
+      HAL_GPIO_TogglePin(GPIOC,GPIO_PIN_13);
+    }
+    // ② Yaw 控制（270° 舵机，PA0）
+    int32_t p_yaw = 1500 + (int32_t)(KP_YAW * err_yaw + KD_YAW * d_err_yaw);
+    if (p_yaw < 500)  p_yaw = 500;
+    if (p_yaw > 2500) p_yaw = 2500;
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, p_yaw);
+
+    // ③ Pitch 控制（180° 舵机，PA1）
+    int32_t p_yaw = 1500 + (int32_t)(KP_YAW * err_pitch + KD_YAW * d_err_pitch);
+    if (p_pitch < 500)  p_pitch = 500;
+    if (p_pitch > 2500) p_pitch = 2500;
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, p_pitch);
+  }
+  /* USER CODE END 3 */
+}
+
+/**
+  * @brief System Clock Configuration
+  * @retval None
+  */
+void SystemClock_Config(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
+  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+/* USER CODE BEGIN 4 */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance != USART1) return;
+  // HAL_UART_Transmit(&huart1,&rx_byte,1,10);
+  rx_buf[rx_idx++] = rx_byte;
+
+  if (rx_idx >= 2 && rx_buf[rx_idx-2] == 0xAA && rx_buf[rx_idx-1] == 0x55) {
+    rx_idx = 2;                              // 帧头对齐
+  } 
+  else if (rx_idx >= 18) {
+    if (rx_buf[17] == 0x0D) {                // 帧尾
+      uint8_t sum = 0;
+      for (int i = 2; i < 16; i++) sum += rx_buf[i];
+      if (sum == rx_buf[16]) {             // 校验
+        float yaw, pitch, dist;
+        memcpy(&yaw,   &rx_buf[2],  4);
+        memcpy(&pitch, &rx_buf[6],  4);
+        memcpy(&dist,  &rx_buf[10], 4);
+        g_yaw   = yaw;
+        g_pitch = pitch;
+        g_dist  = dist;
+        g_fire  = rx_buf[14];
+      }
+    }
+    rx_idx = 0;
+  }
+  HAL_UART_Receive_IT(huart, &rx_byte, 1);     // ★ 必须重开
+}
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance != USART1) return;
+
+    // ★ 清掉溢出标志
+    __HAL_UART_CLEAR_OREFLAG(huart);
+
+    // ★ 重新开启接收（否则永久停收）
+    HAL_UART_Receive_IT(huart, &rx_byte, 1);
+}
+/* USER CODE END 4 */
+
+/**
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
+void Error_Handler(void)
+{
+  /* USER CODE BEGIN Error_Handler_Debug */
+  /* User can add his own implementation to report the HAL error return state */
+  __disable_irq();
+  while (1)
+  {
+  }
+  /* USER CODE END Error_Handler_Debug */
+}
+#ifdef USE_FULL_ASSERT
+/**
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
+void assert_failed(uint8_t *file, uint32_t line)
+{
+  /* USER CODE BEGIN 6 */
+  /* User can add his own implementation to report the file name and line number,
+     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  /* USER CODE END 6 */
+}
+#endif /* USE_FULL_ASSERT */
