@@ -115,9 +115,10 @@ int main(void)
   MX_USART1_UART_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+  HAL_UART_Receive_IT(&huart1,&rx_byte,1);    /* UART1 */
+  HAL_Delay(600);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);   /* yaw */
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);   /* pitch */
-  HAL_UART_Receive_IT(&huart1,&rx_byte,1);    /* UART1 */
   /* USER CODE END 2 */
 
   /* Infinite loop */
